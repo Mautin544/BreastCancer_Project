@@ -1,6 +1,6 @@
 NAME: HUNKANRIN MAUTIN GODWIN 
 REG NO: 250000875
-Machine Learning Algorithm:
+Machine Learning Algorithm: TensorFlow, Logistic Regression, Artificial Neural Network
 Model Persistence Method: 
 LIVE URL: 
 GIT HUB REPOSITORY LINK: https://github.com/Mautin544/BreastCancer_Project 
