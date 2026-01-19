@@ -1,13 +1,4 @@
-"""
-Breast Cancer Prediction Web App
-================================
-Production-ready Flask application that serves a trained
-Artificial Neural Network (ANN) for breast cancer classification.
 
-Author: Noah Babadina
-Model: Feed-Forward Neural Network (Keras)
-Deployment Target: Render
-"""
 
 # ---------------------------------------------------------
 # Imports
