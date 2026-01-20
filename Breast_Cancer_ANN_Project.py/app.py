@@ -1,10 +1,17 @@
 # ---------------------------------------------------------
-# Imports
+# Imports & Memory Constraints (MUST BE AT THE TOP)
 # ---------------------------------------------------------
+import os
+import logging
+
+# Set TF logging to minimum and restrict threading to save RAM
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+import tensorflow as tf
+tf.config.threading.set_inter_op_parallelism_threads(1)
+tf.config.threading.set_intra_op_parallelism_threads(1)
+
 from flask import Flask, render_template, request, jsonify
 import numpy as np
-import logging
-import os
 
 from tensorflow.keras.models import load_model
 from sklearn.datasets import load_breast_cancer
@@ -13,48 +20,47 @@ from sklearn.preprocessing import StandardScaler
 # ---------------------------------------------------------
 # App Configuration
 # ---------------------------------------------------------
-# Explicitly setting template and static folders helps Render find them
+# Get absolute path for the folder Render is currently in
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__, 
             template_folder=os.path.join(BASE_DIR, "templates"),
             static_folder=os.path.join(BASE_DIR, "static"))
 
-# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
+# Correct pathing based on your folder structure
 MODEL_PATH = os.path.join(BASE_DIR, "model", "model_cancer_predictor.h5")
 THRESHOLD = 0.5
-model = None # Initialize as None to prevent crashes
 
 # ---------------------------------------------------------
 # Load Model & Preprocessing Objects
 # ---------------------------------------------------------
-logger.info(f"Checking model at: {MODEL_PATH}")
+logger.info(f"Attempting memory-optimized load from: {MODEL_PATH}")
+
+# Global variable for the model
+model = None
 
 if os.path.exists(MODEL_PATH):
     try:
-        model = load_model(MODEL_PATH)
-        logger.info("✅ ANN Model loaded successfully")
+        # Using compile=False saves memory during the loading process
+        model = load_model(MODEL_PATH, compile=False)
+        logger.info("✅ Model loaded successfully (Memory Optimized)")
     except Exception as e:
-        logger.error(f"❌ Failed to load model: {e}")
+        logger.error(f"❌ Load failed: {e}")
 else:
-    logger.error(f"❌ Model file NOT found at {MODEL_PATH}")
+    logger.error("❌ Model file not found!")
 
-# Pre-fit the scaler (consistent with training)
-try:
-    data = load_breast_cancer(as_frame=True)
-    X = data.data
-    FEATURE_NAMES = list(X.columns)
-    scaler = StandardScaler()
-    scaler.fit(X)
-    logger.info("✅ Scaler initialized and fitted")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize scaler: {e}")
+# Load dataset once to fit the scaler
+data = load_breast_cancer(as_frame=True)
+X = data.data
+FEATURE_NAMES = list(X.columns)
+scaler = StandardScaler()
+scaler.fit(X)
 
 # ---------------------------------------------------------
 # Routes
@@ -66,16 +72,15 @@ def index():
     prediction_class = None
 
     if request.method == "POST":
-        # Check if model exists before predicting
-        if model is None:
-            return render_template("index.html", features=FEATURE_NAMES, prediction="Model not available.", prediction_class="error")
-
         try:
+            if model is None:
+                raise Exception("Model is not loaded on the server.")
+
             input_features = [float(request.form[feature]) for feature in FEATURE_NAMES]
             input_array = np.array(input_features).reshape(1, -1)
             input_scaled = scaler.transform(input_array)
 
-            # Prediction logic
+            # verbose=0 reduces logging memory overhead
             prob = float(model.predict(input_scaled, verbose=0)[0][0])
             probability = round(prob, 4)
 
@@ -86,11 +91,11 @@ def index():
                 result = "Malignant Tumor"
                 prediction_class = "malignant"
 
-            logger.info(f"Prediction: {result} ({probability})")
+            logger.info(f"Prediction made: {result}")
 
         except Exception as e:
             logger.error(f"Prediction error: {e}")
-            result = "Error in input values."
+            result = "Error in input values or model availability."
             prediction_class = "error"
 
     return render_template(
@@ -106,10 +111,9 @@ def health_check():
     return jsonify(status="ok", model_loaded=(model is not None)), 200
 
 # ---------------------------------------------------------
-# Entry Point
+# Application Entry Point
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    # Render provides the port as an environment variable
+    # Dynamically find the port Render assigns
     port = int(os.environ.get("PORT", 5000))
-    # You must listen on 0.0.0.0 for Render to detect the port
     app.run(host="0.0.0.0", port=port, debug=False)
