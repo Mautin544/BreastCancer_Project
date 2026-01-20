@@ -109,4 +109,7 @@ def health_check():
 # Entry Point
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    app.run(debug=False) # Keep debug False for production
+    # Render provides the port as an environment variable
+    port = int(os.environ.get("PORT", 5000))
+    # You must listen on 0.0.0.0 for Render to detect the port
+    app.run(host="0.0.0.0", port=port, debug=False)
