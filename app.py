@@ -4,7 +4,7 @@
 from flask import Flask, render_template, request, jsonify
 import numpy as np
 import logging
-import os  # Added for path handling
+import os
 
 from tensorflow.keras.models import load_model
 from sklearn.datasets import load_breast_cancer
@@ -13,45 +13,48 @@ from sklearn.preprocessing import StandardScaler
 # ---------------------------------------------------------
 # App Configuration
 # ---------------------------------------------------------
-app = Flask(__name__)
+# Explicitly setting template and static folders helps Render find them
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Logging configuration (Render-compatible)
+app = Flask(__name__, 
+            template_folder=os.path.join(BASE_DIR, "templates"),
+            static_folder=os.path.join(BASE_DIR, "static"))
+
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# --- FIX: ROBUST PATH HANDLING ---
-# This gets the absolute path of the directory where app.py is located
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# This joins that path with the 'model' folder and filename
 MODEL_PATH = os.path.join(BASE_DIR, "model", "model_cancer_predictor.h5")
-# ---------------------------------
-
 THRESHOLD = 0.5
+model = None # Initialize as None to prevent crashes
 
 # ---------------------------------------------------------
 # Load Model & Preprocessing Objects
 # ---------------------------------------------------------
-logger.info(f"Attempting to load ANN model from: {MODEL_PATH}")
+logger.info(f"Checking model at: {MODEL_PATH}")
 
-if not os.path.exists(MODEL_PATH):
-    logger.error(f"CRITICAL ERROR: Model file not found at {MODEL_PATH}")
-else:
+if os.path.exists(MODEL_PATH):
     try:
         model = load_model(MODEL_PATH)
-        logger.info("Model loaded successfully")
+        logger.info("✅ ANN Model loaded successfully")
     except Exception as e:
-        logger.error(f"Error loading model: {e}")
+        logger.error(f"❌ Failed to load model: {e}")
+else:
+    logger.error(f"❌ Model file NOT found at {MODEL_PATH}")
 
-# Load dataset to recreate scaler exactly as during training
-data = load_breast_cancer(as_frame=True)
-X = data.data
-FEATURE_NAMES = list(X.columns)
-
-scaler = StandardScaler()
-scaler.fit(X)
+# Pre-fit the scaler (consistent with training)
+try:
+    data = load_breast_cancer(as_frame=True)
+    X = data.data
+    FEATURE_NAMES = list(X.columns)
+    scaler = StandardScaler()
+    scaler.fit(X)
+    logger.info("✅ Scaler initialized and fitted")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize scaler: {e}")
 
 # ---------------------------------------------------------
 # Routes
@@ -63,19 +66,19 @@ def index():
     prediction_class = None
 
     if request.method == "POST":
-        try:
-            input_features = [
-                float(request.form[feature])
-                for feature in FEATURE_NAMES
-            ]
+        # Check if model exists before predicting
+        if model is None:
+            return render_template("index.html", features=FEATURE_NAMES, prediction="Model not available.", prediction_class="error")
 
+        try:
+            input_features = [float(request.form[feature]) for feature in FEATURE_NAMES]
             input_array = np.array(input_features).reshape(1, -1)
             input_scaled = scaler.transform(input_array)
 
+            # Prediction logic
             prob = float(model.predict(input_scaled, verbose=0)[0][0])
             probability = round(prob, 4)
 
-            # Note: Checking threshold logic (0.5 typically means >= 0.5 is Benign in your code)
             if prob >= THRESHOLD:
                 result = "Benign Tumor"
                 prediction_class = "benign"
@@ -83,13 +86,11 @@ def index():
                 result = "Malignant Tumor"
                 prediction_class = "malignant"
 
-            logger.info(
-                f"Prediction made | Result: {result} | Probability: {probability}"
-            )
+            logger.info(f"Prediction: {result} ({probability})")
 
         except Exception as e:
             logger.error(f"Prediction error: {e}")
-            result = "Invalid input values. Please check your entries."
+            result = "Error in input values."
             prediction_class = "error"
 
     return render_template(
@@ -102,14 +103,10 @@ def index():
 
 @app.route("/health", methods=["GET"])
 def health_check():
-    return jsonify(
-        status="ok",
-        model_loaded=True
-    ), 200
+    return jsonify(status="ok", model_loaded=(model is not None)), 200
 
 # ---------------------------------------------------------
-# Application Entry Point
+# Entry Point
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    # Added host and port for easier local testing
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=False) # Keep debug False for production
